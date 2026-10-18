@@ -1,0 +1,182 @@
+<!DOCTYPE html><html lang="pt-BR"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Lendas de Eldoria: O Cristal Perdido</title>
+<style>
+html,body{margin:0;height:100%;background:#111;color:#fff;font-family:monospace}
+[hidden]{display:none!important}
+#w{height:100%;display:flex;align-items:center;justify-content:center;position:relative}
+canvas{image-rendering:pixelated;aspect-ratio:4/3;width:min(100vw,133.33vh);background:#000}
+#m{position:absolute;display:flex;flex-direction:column;gap:8px;align-items:center;text-align:center}
+h1{color:#ffd84a;text-shadow:3px 3px #a33;margin:0 0 8px;font-size:min(5vw,38px)}h1 small{font-size:.5em;color:#fff}
+button{font:inherit;padding:8px 24px;background:#2a6b2a;color:#fff;border:3px solid #ffd84a;cursor:pointer}button:hover{background:#3c9a3c}
+#how{background:#000b;padding:8px;max-width:420px;font-size:13px;text-align:left}
+#bs{position:absolute;top:6px;right:6px;padding:4px 8px}
+</style></head><body><div id=w><canvas id=c width=320 height=240></canvas>
+<div id=m><h1>LENDAS DE ELDORIA<br><small>O Cristal Perdido</small></h1><button id=bn>Novo Jogo</button><button id=bc>Continuar</button><button id=bh>Como Jogar</button>
+<div id=how hidden>WASD/setas: mover · Espaço/J: espada · K: bomba (quebra pedras rachadas) · E: interagir (NPCs, baús, portões, cristais de save) · H: poção · I: inventário · M: mapa · Esc: pausa · N: som.<br>Fale com o Ancião, ache os 3 fragmentos do cristal e derrote o feiticeiro nas Ruínas!</div></div>
+<button id=bs>🔊</button></div>
+<script>
+const C=document.getElementById('c'),X=C.getContext('2d'),T=16,W=64,H=48,SOL=new Set([1,2,3,5,8,9,10]);
+let rs=7;const rnd=()=>(rs=rs*16807%2147483647)/2147483647;
+let map,objs,en,pk,dr=[],pr=[],bo=[],fx=[],s,st='menu',P,pages=[],li=0,shI=0,shM='',tm=0,snd=1,K={},AC,reg='',bnr=0,nt=0,sv=0;
+const R=(c,x,y,w,h)=>{X.fillStyle=c;X.fillRect(x|0,y|0,w,h)},TX=(t,x,y,c='#fff')=>{X.fillStyle=c;X.fillText(t,x,y)};
+const RG=[['Vila do Carvalho',4,30,17,15],['Floresta dos Sussurros',4,14,21,15],['Pradaria de Eldoria',22,29,23,16],['Cavernas de Cristal',26,4,19,19],['Pântano Sombrio',46,22,17,23],['Ruínas Antigas',46,4,17,17]];
+const rg=(x,y)=>RG.findIndex(r=>x>=r[1]&&x<r[1]+r[3]&&y>=r[2]&&y<r[2]+r[4]);
+const base=(x,y)=>[0,0,0,6,7,12][rg(x,y)]||0;
+const ED={slime:{hp:2,sp:28,d:1,w:12,h:10},bat:{hp:1,sp:55,d:1,w:12,h:10},golem:{hp:5,sp:20,d:2,w:12,h:10},mage:{hp:2,sp:16,d:1,w:12,h:10},mini:{hp:12,sp:38,d:2,w:20,h:14},boss:{hp:28,sp:36,d:2,w:22,h:18}};
+const Q=[
+{id:'mush',n:'Cogumelos',g:'rosa',t:'Traga 3 cogumelos da floresta.',ok:f=>f.mush>=3,r:20,p:f=>'Cogumelos '+f.mush+'/3'},
+{id:'slime',n:'Gosmas',g:'rosa',t:'Derrote 5 gosmas verdes.',ok:f=>f.kills>=5,r:25,p:f=>'Gosmas '+f.kills+'/5'},
+{id:'bag',n:'Bolsa perdida',g:'merc',t:'Perdi minha bolsa de moedas na pradaria. Pode achar?',ok:f=>f.bag,r:30},
+{id:'key',n:'Chave da caverna',g:'anc',t:'Há uma chave num baú escondido na floresta.',ok:f=>f.key,r:15},
+{id:'sh1',n:'Fragmento da floresta',g:'anc',t:'Derrote o Guardião da floresta para pegar um fragmento.',ok:f=>f.sh1,r:30},
+{id:'sh2',n:'Fragmento da caverna',g:'anc',t:'Há um fragmento nas Cavernas de Cristal (use a chave).',ok:f=>f.sh2,r:30},
+{id:'sh3',n:'Fragmento do pântano',g:'anc',t:'Um fragmento está preso por pedras rachadas no pântano. Use bombas!',ok:f=>f.sh3,r:30},
+{id:'boss',n:'O Feiticeiro',g:'anc',t:'Com 3 fragmentos, abra as Ruínas e derrote o feiticeiro!',ok:f=>f.boss,r:100}];
+const SH=[['Poção de cura',12,()=>s.potions++],['Bomba',15,()=>s.bombs++],['Escudo',30,()=>s.shield=1,()=>s.shield],['Melhoria de espada',40,()=>s.sword++,()=>s.sword>=3],['Coração extra',50,()=>{s.mhp++;s.hp=s.mhp},()=>s.mhp>=8]];
+const shards=()=>(s.f.sh1?1:0)+(s.f.sh2?1:0)+(s.f.sh3?1:0);
+function gen(){rs=7;map=[];for(let y=0;y<H;y++){map.push([]);for(let x=0;x<W;x++)map[y].push(x==0||y==0||x==W-1||y==H-1?1:0)}
+const F=(x,y,w,h,f)=>{for(let j=y;j<y+h;j++)for(let i=x;i<x+w;i++)map[j][i]=f(i,j)};
+F(4,14,21,15,()=>rnd()<.4?1:0);F(22,29,23,16,()=>{const r=rnd();return r<.06?3:r<.14?11:0});F(26,4,19,19,()=>5);
+F(46,22,17,23,()=>{const r=rnd();return r<.22?2:r<.35?1:7});F(46,4,17,17,(x,y)=>x==46||x==62||y==4||y==20?5:rnd()<.1?3:12);
+F(9,36,4,3,()=>4);[[5,31],[15,31],[5,40],[16,40]].forEach(a=>F(a[0],a[1],3,2,()=>8));
+F(28,8,16,4,()=>6);F(35,8,2,14,()=>6);F(28,12,6,6,()=>6);F(38,12,6,6,()=>6);F(35,22,2,1,()=>9);F(35,23,2,6,()=>4);
+F(55,24,7,7,()=>7);F(12,15,2,30,()=>4);F(4,36,57,1,()=>4);F(54,21,2,16,()=>4);F(57,30,1,7,()=>4);F(54,20,2,1,()=>9);
+const cl=(x,y,r)=>{for(let j=y-r;j<=y+r;j++)for(let i=x-r;i<=x+r;i++){const t=map[j][i];if(t==1||t==2||t==3||t==10)map[j][i]=base(i,j)}};
+const O=(o,a)=>{o.x*=T;o.y*=T;o.solid=1;a&&(cl(o.x/T,o.y/T,1));return o};
+objs=[{k:'npc',id:'rosa',n:'Dona Rosa',x:8,y:34,c:'#e6a',idle:'Obrigada, herói! Eldoria precisa de você.'},{k:'npc',id:'merc',n:'Mercador',x:16,y:34,c:'#fc4'},{k:'npc',id:'anc',n:'Ancião',x:10,y:40,c:'#ddd',idle:'Reúna os 3 fragmentos e abra as Ruínas, ao norte do pântano.'},
+{k:'save',x:14,y:38},{k:'save',x:34,y:30},{k:'save',x:53,y:34},
+{k:'sign',x:11,y:30,t:'Floresta dos Sussurros ao norte. Cuidado com o Guardião!'},{k:'sign',x:24,y:35,t:'Pradaria de Eldoria. Cavernas ao norte (precisa de chave).'},{k:'sign',x:46,y:35,t:'Pântano Sombrio. Pedras rachadas guardam tesouros.'},{k:'sign',x:56,y:21,t:'Ruínas Antigas: o portão só abre com 3 fragmentos.'},
+{k:'chest',id:'c1',x:6,y:16,it:'key'},{k:'chest',id:'c2',x:30,y:14,it:'sh2'},{k:'chest',id:'c3',x:59,y:26,it:'sh3'},{k:'chest',id:'c4',x:40,y:14,it:'heart'},{k:'chest',id:'c5',x:17,y:43,it:'coins',n:15},{k:'chest',id:'c6',x:30,y:34,it:'bomb',n:5},{k:'chest',id:'c7',x:51,y:18,it:'coins',n:30}].map(o=>O(o,o.k!='chest'||o.id!='c3'));
+for(let j=25;j<=27;j++)for(let i=58;i<=60;i++)map[j][i]=10;map[26][59]=7;
+pk=[['m1','mush',7,18],['m2','mush',20,24],['m3','mush',9,26],['bag','bag',38,40]].map(a=>{cl(a[2],a[3],0);return{id:a[0],t:a[1],x:a[2]*T+2,y:a[3]*T+2}});
+cl(18,18,3);cl(54,8,3);
+if(s.g.cave)F(35,22,2,1,()=>6);if(s.g.ruin)F(54,20,2,1,()=>12);
+en=[];const sp=(t,n,r)=>{const q=RG[r];for(let i=0;i<n;i++)for(let k=0;k<99;k++){const x=q[1]+1+(rnd()*(q[3]-2)|0),y=q[2]+1+(rnd()*(q[4]-2)|0);if(!SOL.has(map[y][x])&&!objs.some(o=>o.x==x*T&&o.y==y*T)){spawn(t,x,y);break}}};
+sp('slime',6,1);sp('bat',3,1);sp('slime',6,2);sp('bat',3,2);sp('mage',1,2);sp('golem',4,3);sp('bat',4,3);sp('slime',4,4);sp('mage',3,4);sp('bat',2,4);sp('golem',3,5);sp('mage',3,5);
+if(!s.f.sh1)spawn('mini',18,18);if(!s.f.boss)spawn('boss',54,8)}
+function spawn(t,x,y){const d=ED[t];en.push({t,x:x*T,y:y*T,hp:d.hp,mh:d.hp,w:d.w,h:d.h,cd:rnd()*2,kx:0,ky:0,fl:0,vx:0,vy:0,wt:0})}
+const solidAt=(x,y)=>{const tx=x>>4,ty=y>>4;return tx<0||ty<0||tx>=W||ty>=H||SOL.has(map[ty][tx])};
+function blocked(x,y,w,h){if(solidAt(x,y)||solidAt(x+w-1,y)||solidAt(x,y+h-1)||solidAt(x+w-1,y+h-1))return 1;return objs.some(o=>o.solid&&x<o.x+14&&x+w>o.x+2&&y<o.y+14&&y+h>o.y+2)}
+function mv(e,dx,dy,w,h){if(!blocked(e.x+dx,e.y,w,h))e.x+=dx;if(!blocked(e.x,e.y+dy,w,h))e.y+=dy}
+function tone(f,d,ty,v,f2){if(!snd||!AC)return;const o=AC.createOscillator(),g=AC.createGain(),t=AC.currentTime;o.type=ty;o.frequency.setValueAtTime(f,t);if(f2)o.frequency.exponentialRampToValueAtTime(f2,t+d);g.gain.setValueAtTime(v,t);g.gain.exponentialRampToValueAtTime(.001,t+d);o.connect(g);g.connect(AC.destination);o.start();o.stop(t+d)}
+function sfx(k){try{if(!AC){AC=new AudioContext();AC.resume()}}catch(e){return}const p={sw:[300,150,.12,'sawtooth'],coin:[880,1320,.12,'square'],hit:[220,70,.15,'square'],chest:[400,900,.3,'triangle'],q:[523,1046,.5,'square'],bomb:[110,30,.5,'sawtooth'],dmg:[160,50,.25,'sawtooth']}[k];tone(p[0],p[2],p[3],.1,p[1])}
+const NN=[262,330,392,440,392,330,262,294,349,440,523,440];let ni=0;setInterval(()=>tone(NN[ni++%12],.25,'triangle',.03),300);
+function say(t){const w=t.split(' '),L=[];let l='';for(const x of w){if((l+' '+x).length>40){L.push(l);l=x}else l=l?l+' '+x:x}L.push(l);pages=[];for(let i=0;i<L.length;i+=3)pages.push(L.slice(i,i+3));li=0;st='dlg'}
+function save(){s.px=P.x;s.py=P.y;localStorage.setItem('eld1',JSON.stringify(s))}
+function start(load){if(load){s=JSON.parse(localStorage.getItem('eld1'))}else s={hp:3,mhp:3,coins:0,sword:1,shield:0,potions:1,bombs:0,f:{mush:0,kills:0},q:{},o:{},got:{},g:{},seen:Array(192).fill(0),sx:160,sy:592,px:160,py:592};
+gen();P={x:s.px,y:s.py,dir:0,atk:0,cd:0,inv:0,kx:0,ky:0,mv:0};dr=[];pr=[];bo=[];fx=[];m.style.display='none';st='play';sfx('q');
+if(!load)say('Bem-vindo a Eldoria! O cristal mágico foi destruído. Fale com o Ancião na vila. Mova-se com WASD/setas, ataque com Espaço/J, interaja com E, bomba com K, poção com H.')}
+function hurtP(d,f){if(P.inv>0||st!='play')return;s.hp-=Math.max(1,d-(s.shield?1:0));P.inv=1.2;sfx('dmg');if(f){const a=Math.atan2(P.y-f.y,P.x-f.x);P.kx=Math.cos(a)*110;P.ky=Math.sin(a)*110}if(s.hp<=0){s.hp=0;st='dead'}}
+function hurtE(e,d,fx0,fy0){e.hp-=d;e.fl=.15;const a=Math.atan2(e.y-fy0,e.x-fx0);e.kx=Math.cos(a)*140;e.ky=Math.sin(a)*140;sfx('hit');
+if(e.hp<=0){en.splice(en.indexOf(e),1);for(let i=0;i<8;i++)fx.push({x:e.x+6,y:e.y+5,vx:Math.random()*80-40,vy:Math.random()*80-40,l:.4});
+if(e.t=='slime')s.f.kills++;if(e.t=='mini'){s.f.sh1=1;say('O Guardião caiu e deixou um fragmento do cristal! ('+shards()+'/3)');sfx('chest')}
+else if(e.t=='boss'){s.f.boss=1;st='win';sfx('q')}else{const r=Math.random();if(r<.6)dr.push({x:e.x+2,y:e.y+2,t:'c',l:10});else if(r<.75)dr.push({x:e.x+2,y:e.y+2,t:'h',l:10})}save()}}
+function attack(){if(P.cd>0)return;P.cd=.35;P.atk=.18;sfx('sw');const cx=P.x+5,cy=P.y+4,b=[[cx-9,cy+2,18,16],[cx-9,cy-18,18,16],[cx-18,cy-9,16,18],[cx+2,cy-9,16,18]][P.dir];
+for(const e of en.slice())if(b[0]<e.x+e.w&&b[0]+b[2]>e.x&&b[1]<e.y+e.h&&b[1]+b[3]>e.y)hurtE(e,s.sword,cx-8*[0,0,-1,1][P.dir],cy-8*[1,-1,0,0][P.dir])}
+function give(c){const i=c.it;let m;if(i=='key'){s.f.key=1;m='Você achou a Chave da caverna!'}else if(i[0]=='s'){s.f[i]=1;m='Fragmento do cristal! ('+shards()+'/3)'}
+else if(i=='heart'){s.mhp=Math.min(8,s.mhp+1);s.hp=s.mhp;m='Recipiente de coração! Vida máxima +1.'}else if(i=='coins'){s.coins+=c.n;m='Você achou '+c.n+' moedas!'}else{s.bombs+=c.n;m='Você achou '+c.n+' bombas! Use com K.'}
+say(m);sfx('chest');save()}
+function talk(n){for(const q of Q.filter(q=>q.g==n.id)){const t=s.q[q.id]||0;if(t==2)continue;
+if(t==0){s.q[q.id]=1;say(n.n+': '+q.t);return}
+if(q.ok(s.f)){s.q[q.id]=2;s.coins+=q.r;sfx('q');say('Missão "'+q.n+'" completa! +'+q.r+' moedas.');save();return}
+say(n.n+': '+q.t+(q.p?' ('+q.p(s.f)+')':''));return}
+if(n.id=='merc'){st='shop';shI=0;shM='Bem-vindo à loja!'}else say(n.n+': '+n.idle)}
+function interact(){const fx0=P.x+5+[0,0,-14,14][P.dir],fy0=P.y+4+[14,-14,0,0][P.dir];let b=null,bd=18;
+for(const o of objs){const d=Math.hypot(o.x+8-fx0,o.y+8-fy0);if(d<bd){bd=d;b=o}}
+if(b){if(b.k=='npc')talk(b);else if(b.k=='sign')say(b.t);else if(b.k=='save'){s.sx=P.x;s.sy=P.y;s.hp=s.mhp;save();sfx('q');say('Cristal de salvamento: progresso salvo e vida restaurada!')}
+else if(b.k=='chest'){if(s.o[b.id])say('O baú está vazio.');else{s.o[b.id]=1;give(b)}}return}
+const tx=fx0>>4,ty=fy0>>4;if(map[ty]&&map[ty][tx]==9){if(ty==22){if(s.f.key){s.g.cave=1;map[22][35]=map[22][36]=6;sfx('chest');say('A chave abriu o portão da caverna!')}else say('Trancado. Você precisa da Chave da caverna (baú na floresta).')}
+else if(shards()>=3){s.g.ruin=1;map[20][54]=map[20][55]=12;sfx('chest');say('Os fragmentos brilham e o portão das Ruínas se abre!')}else say('Trancado. Reúna os 3 fragmentos do cristal ('+shards()+'/3).')}}
+function press(k){
+if(st=='menu')return;
+if(st=='dlg'){if(k=='e'||k==' '||k=='enter'){if(++li>=pages.length){st='play';save()}}return}
+if(st=='shop'){if(k=='escape')st='play';else if(k=='w'||k=='arrowup')shI=(shI+4)%5;else if(k=='s'||k=='arrowdown')shI=(shI+1)%5;else if(k=='e'||k=='enter'){const i=SH[shI];if(i[3]&&i[3]())shM='Já possui!';else if(s.coins<i[1])shM='Moedas insuficientes!';else{s.coins-=i[1];i[2]();sfx('coin');shM='Comprado!';save()}}return}
+if(st=='dead'){if(k=='enter'){P.x=s.sx;P.y=s.sy;s.hp=s.mhp;P.inv=2;st='play'}return}
+if(st=='win'){if(k=='e'||k=='enter')st='play';return}
+if(st=='inv'||st=='map'){if(k=='escape'||k==(st=='inv'?'i':'m'))st='play';return}
+if(st=='pause'){if(k=='escape')st='play';if(k=='enter'){save();st='menu';m.style.display='flex'}return}
+if(k=='escape')st='pause';else if(k=='i')st='inv';else if(k=='m')st='map';else if(k=='e')interact();else if(k==' '||k=='j')attack();
+else if(k=='k'&&s.bombs>0){s.bombs--;bo.push({x:P.x,y:P.y,t:1.5})}else if(k=='h'&&s.potions>0&&s.hp<s.mhp){s.potions--;s.hp=Math.min(s.mhp,s.hp+2);sfx('coin')}}
+addEventListener('keydown',e=>{const k=e.key.toLowerCase();if([' ','arrowup','arrowdown','arrowleft','arrowright'].includes(k))e.preventDefault();if(k=='n'){tgl()}if(K[k])return;K[k]=1;press(k)});addEventListener('keyup',e=>K[e.key.toLowerCase()]=0);
+const m=document.getElementById('m');function tgl(){snd=!snd;document.getElementById('bs').textContent=snd?'🔊':'🔇'}
+bs.onclick=()=>{tgl();sfx('coin')};bn.onclick=()=>start(0);bh.onclick=()=>how.hidden=!how.hidden;bc.onclick=()=>{if(localStorage.getItem('eld1'))start(1);else alert('Nenhum jogo salvo.')};
+function upd(dt){tm+=dt;P.atk-=dt;P.cd-=dt;P.inv-=dt;nt+=dt;if(nt>15){nt=0;save()}
+const dx=(K.d||K.arrowright?1:0)-(K.a||K.arrowleft?1:0),dy=(K.s||K.arrowdown?1:0)-(K.w||K.arrowup?1:0);P.mv=0;
+if((dx||dy)&&P.atk<=0){const l=Math.hypot(dx,dy),v=70*dt/l;mv(P,dx*v,dy*v,10,8);P.mv=1;P.dir=dy>0?0:dy<0?1:dx<0?2:3}
+if(P.kx||P.ky){mv(P,P.kx*dt,P.ky*dt,10,8);P.kx*=.85;P.ky*=.85}
+const tx=(P.x+5)>>4,ty=(P.y+4)>>4,r=rg(tx,ty);if(RG[r]&&RG[r][0]!=reg){reg=RG[r][0];bnr=2.5}bnr-=dt;
+for(let j=-2;j<=2;j++)for(let i=-2;i<=2;i++){const cx=(tx>>2)+i,cy=(ty>>2)+j;if(cx>=0&&cy>=0&&cx<16&&cy<12)s.seen[cy*16+cx]=1}
+for(const e of en){e.fl-=dt;const ex=e.x+e.w/2,ey=e.y+e.h/2,px=P.x+5,py=P.y+4,d=Math.hypot(px-ex,py-ey),D=ED[e.t],big=e.t=='mini'||e.t=='boss';let vx=0,vy=0;
+if(Math.abs(e.kx)+Math.abs(e.ky)>5){vx=e.kx;vy=e.ky;e.kx*=.85;e.ky*=.85}
+else if(d<(big?220:90)){let a=Math.atan2(py-ey,px-ex);if(e.t=='mage'&&d<55)a+=Math.PI;if(e.t=='bat')a+=Math.sin(tm*6+e.x)*.9;vx=Math.cos(a)*D.sp;vy=Math.sin(a)*D.sp;
+if((e.t=='mage'||big)&&(e.cd-=dt)<=0&&d<140){e.cd=big?1.3:2.2;const a2=Math.atan2(py-ey,px-ex);for(const o of e.t=='boss'?[-.3,0,.3]:[0])pr.push({x:ex,y:ey,vx:Math.cos(a2+o)*80,vy:Math.sin(a2+o)*80,l:3})}}
+else{if((e.wt-=dt)<=0){e.wt=1+rnd()*1.5;e.vx=(rnd()*3|0)-1;e.vy=(rnd()*3|0)-1}vx=e.vx*D.sp*.5;vy=e.vy*D.sp*.5}
+mv(e,vx*dt,vy*dt,e.w,e.h);
+if(P.x<e.x+e.w&&P.x+10>e.x&&P.y<e.y+e.h&&P.y+8>e.y)hurtP(D.d,e)}
+for(const p of pr.slice()){p.x+=p.vx*dt;p.y+=p.vy*dt;p.l-=dt;if(p.l<=0||solidAt(p.x,p.y))pr.splice(pr.indexOf(p),1);else if(Math.hypot(p.x-P.x-5,p.y-P.y-4)<6){hurtP(1,p);pr.splice(pr.indexOf(p),1)}}
+for(const b of bo.slice()){b.t-=dt;if(b.t<=0){bo.splice(bo.indexOf(b),1);sfx('bomb');fx.push({x:b.x+5,y:b.y+4,l:.35,e:1});
+for(const e of en.slice())if(Math.hypot(e.x-b.x,e.y-b.y)<36)hurtE(e,3,b.x,b.y);
+const bx=(b.x+5)>>4,by=(b.y+4)>>4;for(let j=by-2;j<=by+2;j++)for(let i=bx-2;i<=bx+2;i++)if(map[j]&&map[j][i]==10)map[j][i]=base(i,j)}}
+for(const d of dr.slice()){d.l-=dt;if(d.l<=0)dr.splice(dr.indexOf(d),1);else if(Math.abs(d.x-P.x)<10&&Math.abs(d.y-P.y)<10){if(d.t=='c')s.coins+=2;else s.hp=Math.min(s.mhp,s.hp+1);sfx('coin');dr.splice(dr.indexOf(d),1)}}
+for(const p of pk)if(!s.got[p.id]&&Math.abs(p.x-P.x)<10&&Math.abs(p.y-P.y)<10){s.got[p.id]=1;sfx('chest');if(p.t=='mush'){s.f.mush++;say('Você pegou um cogumelo! ('+s.f.mush+'/3)')}else{s.f.bag=1;say('Você achou a bolsa de moedas do mercador!')}save()}
+for(const f of fx.slice()){f.l-=dt;f.x+=(f.vx||0)*dt;f.y+=(f.vy||0)*dt;if(f.l<=0)fx.splice(fx.indexOf(f),1)}}
+function heart(x,y,c){R(c,x,y,3,3);R(c,x+4,y,3,3);R(c,x+1,y+3,5,2);R(c,x+2,y+5,3,1)}
+function dtile(t,x,y,px,py){const n=(x*7+y*13)%7;
+if(t==8){const up=map[y-1][x]==8;if(!up){R('#b33',px,py,16,16);R('#822',px,py+12,16,4);R('#d55',px,py+2,16,2)}else{R('#e8d0a0',px,py,16,16);R('#a86',px,py+15,16,1);if([6,16,17].includes(x))R('#642',px+4,py+4,8,12);else R('#6af',px+5,py+3,6,6)}return}
+R({2:'#3a8ad8',4:'#d8b878',5:'#3b3b58',6:'#6a6a90',7:'#566a38',9:'#6a6a58',12:'#bba888'}[t]||'#4cae4c',px,py,16,16);
+if(t==0||t==11){if(n==0)R('#3a9a3a',px+3,py+5,2,3);if(n==3)R('#3a9a3a',px+10,py+10,2,3);if(t==11){R('#fff',px+6,py+6,3,3);R('#f6c',px+7,py+7,1,1)}}
+else if(t==1){R('#5a3a1a',px+6,py+10,4,6);R('#1a6a22',px+1,py+1,14,11);R('#2a9a32',px+3,py+2,6,4)}
+else if(t==2)R('#6ab4f0',px+2+((tm*8)|0)%8,py+5+n%3*3,5,1);
+else if(t==3){R('#888',px+1,py+4,14,11);R('#aaa',px+3,py+4,8,3);R('#666',px+1,py+13,14,2)}
+else if(t==5){R('#2a2a40',px,py+7,16,1);R('#2a2a40',px+8,py,1,7);R('#2a2a40',px+4,py+8,1,8)}
+else if(t==6&&n==2){R('#9ef',px+5,py+4,2,5);R('#cff',px+5,py+4,1,2)}
+else if(t==7&&n<2)R('#3a4a28',px+2,py+8,6,3);
+else if(t==9){R('#443',px+2,py+1,12,14);R('#fc4',px+7,py+6,3,4)}
+else if(t==10){R('#999',px+1,py+3,14,12);R('#333',px+7,py+3,1,5);R('#333',px+5,py+8,4,1)}
+else if(t==12){R('#a09070',px,py+15,16,1);R('#a09070',px+15,py,1,16)}}
+function hero(){const x=P.x-1,y=P.y-8,w=P.dir,f=P.mv&&((tm*8)|0)%2;if(P.inv>0&&((tm*20)|0)%2)return;
+R('#0004',x+1,y+14,10,3);R('#5a3a1a',x+2+f,y+13,3,2);R('#5a3a1a',x+7-f,y+13,3,2);R('#2c9a2c',x+1,y+6,10,7);R('#f0c090',x+2,y+2,8,5);R('#1c7a1c',x+1,y,10,w==1?6:3);
+if(w!=1){if(w!=3)R('#222',w==2?x+3:x+3,y+4,1,2);if(w!=2)R('#222',w==3?x+8:x+8,y+4,1,2)}
+if(s.shield&&w!=1)R('#48f',w==3?x+10:x-1,y+7,3,5);
+if(P.atk>0){const a=[[x+5,y+14,2,10],[x+5,y-8,2,10],[x-10,y+9,10,2],[x+12,y+9,10,2]][w];R('#ddd',...a);R('#fff8',a[0]-2,a[1]-2,a[2]+4,a[3]+4)}}
+function den(e){const x=e.x,y=e.y,c=a=>e.fl>0?'#fff':a,t=e.t;R('#0004',x,y+e.h-1,e.w,3);
+if(t=='slime'){R(c('#4d4'),x,y+3,12,8);R(c('#4d4'),x+2,y+1,8,3);R('#000',x+3,y+4,2,2);R('#000',x+7,y+4,2,2)}
+else if(t=='bat'){const fl=Math.sin(tm*20)*2;R(c('#538'),x-2,y+2+fl,16,3);R(c('#76a'),x+3,y,6,8);R('#f44',x+4,y+2,1,1);R('#f44',x+7,y+2,1,1)}
+else if(t=='golem'){R(c('#999'),x-1,y-2,14,13);R(c('#777'),x-1,y+8,14,3);R('#f33',x+2,y+2,2,2);R('#f33',x+8,y+2,2,2)}
+else if(t=='mage'){R(c('#63a'),x,y,12,11);R(c('#41a'),x+1,y-4,10,5);R('#ff4',x+3,y+3,2,2);R('#ff4',x+7,y+3,2,2)}
+else if(t=='mini'){R(c('#2a2'),x-2,y-8,e.w+4,e.h+8);R('#fc4',x+1,y-12,3,5);R('#fc4',x+e.w-4,y-12,3,5);R('#f22',x+3,y-4,4,3);R('#f22',x+e.w-7,y-4,4,3)}
+else{R(c('#a2a'),x-2,y-14,e.w+4,e.h+14);R('#fc4',x,y-18,e.w,5);R('#ff4',x+4,y-8,4,3);R('#ff4',x+e.w-8,y-8,4,3)}}
+function dobj(o){const x=o.x,y=o.y;R('#0004',x+2,y+13,12,3);
+if(o.k=='npc'){R(o.c,x+3,y+6,10,9);R('#f0c090',x+4,y+1,8,6);R('#432',x+4,y,8,2)}
+else if(o.k=='chest'){const op=s.o[o.id];R(op?'#642':'#a63',x+1,y+5,14,10);R(op?'#321':'#c84',x+1,y+(op?2:5),14,op?3:4);R('#fc4',x+7,y+8,2,3)}
+else if(o.k=='sign'){R('#642',x+7,y+8,2,7);R('#a73',x+2,y+2,12,8)}
+else{const p=Math.sin(tm*3)*2;R('#48f',x+5,y+2+p,6,10);R('#9cf',x+6,y+3+p,2,5);R('#8cf',x+3,y+5+p,10,3)}}
+const MC={0:'#4a4',1:'#272',2:'#38c',3:'#888',4:'#cb8',5:'#444',6:'#668',7:'#564',8:'#a63',9:'#b93',10:'#999',11:'#4a4',12:'#a98'};
+function draw(){X.font='bold 8px monospace';X.textBaseline='top';R('#000',0,0,320,240);
+if(st=='menu'){R('#5ac8f0',0,0,320,240);R('#ffe',250,20,24,24);for(let i=0;i<4;i++)R('#fff',((i*110+tm*12)%420)-50,30+i*20,50,10);for(let i=0;i<16;i++){R('#5a3a1a',i*22+9,214,5,16);R(i%2?'#1a6a22':'#2a9a32',i*22,190,22,28)}R('#4cae4c',0,226,320,14);R('#2c9a2c',((tm*30)%340)-10,212,10,14);return}
+const cx=Math.max(0,Math.min(W*T-320,P.x-155))|0,cy=Math.max(0,Math.min(H*T-240,P.y-120))|0;
+for(let y=cy>>4;y<=(cy+239>>4);y++)for(let x=cx>>4;x<=(cx+319>>4);x++)dtile(map[y][x],x,y,x*T-cx,y*T-cy);
+X.save();X.translate(-cx,-cy);const L=[];
+objs.forEach(o=>L.push([o.y,()=>dobj(o)]));en.forEach(e=>L.push([e.y,()=>den(e)]));L.push([P.y,hero]);L.sort((a,b)=>a[0]-b[0]);
+pk.forEach(p=>{if(!s.got[p.id]){if(p.t=='mush'){R('#e33',p.x+1,p.y+2,8,4);R('#fff',p.x+3,p.y+3,2,2);R('#eec',p.x+3,p.y+6,4,4)}else{R('#a63',p.x+1,p.y+2,10,10);R('#fc4',p.x+4,p.y+5,4,3)}}});
+dr.forEach(d=>{if(d.t=='c'){R('#fc4',d.x,d.y,6,6);R('#fff',d.x+1,d.y+1,2,2)}else heart(d.x,d.y,'#f33')});
+L.forEach(a=>a[1]());
+bo.forEach(b=>{R('#222',b.x+1,b.y+1,8,8);R(((tm*10)|0)%2?'#f84':'#fc4',b.x+4,b.y-2,2,3)});
+pr.forEach(p=>{R('#c5f',p.x-2,p.y-2,5,5);R('#fff',p.x-1,p.y-1,2,2)});
+fx.forEach(f=>{if(f.e){const r=36*(1-f.l/.35)+6;R('#fb4',f.x-r/2,f.y-r/2,r,r);R('#fe8',f.x-r/4,f.y-r/4,r/2,r/2)}else R('#fff',f.x,f.y,3,3)});X.restore();
+for(let i=0;i<s.mhp;i++)heart(4+i*9,4,i<s.hp?'#e22':'#533');R('#fc4',4,15,6,6);TX('x'+s.coins,13,14);TX('Poção '+s.potions+'  Bomba '+s.bombs,4,24,'#ddd');
+const q=Q.find(q=>s.q[q.id]==1);TX(q?'» '+q.n+(q.p?': '+q.p(s.f):''):'» Fale com o Ancião',4,230,'#ff8');
+if(bnr>0)TX(reg,160-reg.length*2.4,4,'#fff');
+const bs=en.find(e=>(e.t=='mini'||e.t=='boss')&&Math.hypot(e.x-P.x,e.y-P.y)<200);if(bs){R('#000',90,214,140,8);R('#e22',91,215,138*bs.hp/bs.mh,6)}
+const box=(h)=>{R('#000e',8,240-h-8,304,h);R('#fff',8,240-h-8,304,1);R('#fff',8,231,304,1)};
+if(st=='dlg'){box(54);pages[li].forEach((l,i)=>TX(l,16,190+i*12));if((tm*3|0)%2)TX('▼',300,220)}
+else if(st=='shop'){R('#000e',50,40,220,150);R('#fff',50,40,220,1);TX('LOJA  —  Moedas: '+s.coins,60,48,'#fc4');SH.forEach((a,i)=>TX((i==shI?'> ':'  ')+a[0]+(a[3]&&a[3]()?'  (esgotado)':'  '+a[1]+'$'),60,70+i*14,i==shI?'#ff8':'#fff'));TX(shM,60,150,'#8f8');TX('W/S: escolher · E: comprar · Esc: sair',60,170,'#aaa')}
+else if(st=='inv'){R('#000e',10,10,300,220);TX('INVENTÁRIO',20,18,'#fc4');['Espada nv.'+s.sword+' (dano '+s.sword+')','Escudo: '+(s.shield?'equipado':'não possui'),'Poções: '+s.potions+' (H)','Bombas: '+s.bombs+' (K)','Moedas: '+s.coins,'Chave da caverna: '+(s.f.key?'sim':'não'),'Fragmentos: '+shards()+'/3','Corações: '+s.mhp].forEach((l,i)=>TX(l,20,36+i*13));
+TX('MISSÕES',170,18,'#fc4');Q.forEach((q,i)=>{const t=s.q[q.id]||0;TX((t==2?'[x] ':t?'[ ] ':'[?] ')+(t?q.n:'???'),170,36+i*13,t==2?'#8f8':'#fff')});TX('I: fechar',20,214,'#aaa')}
+else if(st=='map'){R('#000e',10,10,300,220);TX('MAPA',20,18,'#fc4');for(let y=0;y<H;y++)for(let x=0;x<W;x++)if(s.seen[(y>>2)*16+(x>>2)]){R(MC[map[y][x]],64+x*3,48+y*3,3,3)}else R('#222',64+x*3,48+y*3,3,3);
+if((tm*4|0)%2)R('#f00',64+((P.x+5)>>4)*3-1,48+((P.y+4)>>4)*3-1,5,5);TX('M: fechar',20,214,'#aaa')}
+else if(st=='pause'){R('#000c',70,80,180,70);TX('PAUSA',140,90,'#fc4');TX('Esc: continuar',100,108);TX('Enter: salvar e sair ao menu',100,120);TX('N: som liga/desliga',100,132)}
+else if(st=='dead'){R('#000d',0,0,320,240);TX('VOCÊ CAIU...',120,100,'#f44');TX('Enter: voltar ao último cristal',85,125)}
+else if(st=='win'){R('#000d',0,0,320,240);TX('VITÓRIA!',135,70,'#fc4');['O feiticeiro foi derrotado e o cristal',' brilha novamente sobre Eldoria.','Fale com o Ancião para sua recompensa','e continue explorando o reino!','','E: continuar'].forEach((l,i)=>TX(l,60,95+i*13))}}
+let last=0;function loop(t){const dt=Math.min(.05,(t-last)/1000);last=t;if(st=='play')upd(dt);else tm+=dt;draw();requestAnimationFrame(loop)}
+if(!localStorage.getItem('eld1'))bc.style.opacity=.5;requestAnimationFrame(loop);
+</script></body></html>
